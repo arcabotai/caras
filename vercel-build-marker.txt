@@ -1,0 +1,25 @@
+__dirname: /Users/felirami/.mavis/agents/general/workspace/talkie-latam
+projectRoot: /Users/felirami/.mavis/agents/general/workspace/talkie-latam
+process.cwd(): /Users/felirami/.mavis/agents/general/workspace/talkie-latam
+NODE_ENV: production
+cwd listing:
+.DS_Store
+.env.example
+.env.local
+.env.local.example
+.git
+.gitignore
+.mavis
+.next
+.vercel
+.vercelignore
+.worktrees
+AGENTS.md
+CLAUDE.md
+README.md
+components.json
+deliverable.md
+docs
+drizzle
+drizzle.config.ts
+e2e
