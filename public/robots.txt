@@ -1,0 +1,11 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+
+# Disallow internal and admin routes
+Disallow: /api/
+Disallow: /admin/
+Disallow: /profile/
+
+# Sitemap location
+Sitemap: https://talkielatam.com/sitemap.xml

@@ -1,0 +1,1793 @@
+version: 1
+plan:
+  name: 'Talkie LATAM — Full Build (16 Tasks, 6 Phases)'
+  max_concurrency: 3
+  max_consecutive_failures: 2
+  max_cycles: 40
+  message_to_user: |
+    🚀 Launching the full Talkie LATAM build — 16 tasks across 6 phases.
+
+    Phase 1 runs first (DB + Auth + Env config). Each subsequent phase
+    unlocks only after the previous one passes verification.
+
+    I'll report back with a CycleReport after each phase completes.
+    Hang tight — this is a big one!
+
+tasks:
+  # ═══════════════════════════════════════════════════
+  # PHASE 1 GATE — must complete before Phase 2 starts
+  # ═══════════════════════════════════════════════════
+  - id: phase1-gate
+    title: 'Phase 1 Gate: Infrastructure Setup Complete'
+    prompt: |
+      Phase 1 gate task. DO NOT start until p1-db, p1-auth, AND p1-env are ALL marked as complete.
+      This task has depends_on: [p1-db, p1-auth, p1-env] for a reason.
+
+      Then verify:
+      1. Railway PostgreSQL configured (drizzle.config.ts SSL, scripts/seed.ts, package.json db:seed)
+      2. NextAuth JWT flow works (session.user.id populated, bcrypt, Spanish strings)
+      3. .env.example has all required vars
+      4. .vercelignore exists and ignores .env* and node_modules
+      5. scripts/setup-env.sh exists with setup instructions
+      6. next.config.ts has image domains for dicebear and googleusercontent
+      7. package.json has db:seed and vercel-build scripts
+
+      If any Phase 1 task fails, do NOT pass this gate.
+    assigned_to: verifier
+    depends_on: [p1-db, p1-auth, p1-env]
+    verified_by: verifier
+    verify_prompt: |
+      Confirm Phase 1 gate signals are all green.
+    timeout_ms: 1800000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 1: Setup & Infrastructure (parallel)
+  # ═══════════════════════════════════════════════════
+  - id: p1-db
+    title: 'Database setup + demo seed (Railway PostgreSQL + Drizzle)'
+    prompt: |
+      You are the Database Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - Drizzle ORM schema is already at src/lib/db/schema.ts
+      - drizzle.config.ts exists
+      - DATABASE_URL will be set by the user in Railway
+      - The project uses @neondatabase/serverless and pg for database connections
+      - All text must be in Spanish (LATAM neutral)
+
+      YOUR DELIVERABLE — configure Railway PostgreSQL, run migrations, seed demo data:
+
+      1. Read the existing drizzle.config.ts and src/lib/db/schema.ts
+      2. Read src/lib/db/index.ts to understand the DB connection setup
+      3. Update drizzle.config.ts if needed for Railway PostgreSQL compatibility
+      4. Create a Railway-compatible database configuration:
+         - If DATABASE_URL is a Neon connection string, ensure SSL is enabled
+         - If using pg directly in src/lib/db/index.ts, update it to handle Railway SSL
+      5. Run: npx drizzle-kit generate
+      6. Run: npx drizzle-kit push (simulate with --dry-run if no real DB yet)
+      7. Create a seed script at scripts/seed.ts that inserts 12 demo characters:
+         - 3 anime characters (e.g., un estudiante de anime, una娘, un protagonista shonen)
+         - 3 game characters (e.g., un aventurero RPG, una guerrera, un villano épico)
+         - 3 fiction characters (e.g., un mago sabio, una sirena, un pirata carismático)
+         - 3 custom/LATAM characters (e.g., una abuelita querida, un大哥 de barrio, una chamán)
+         Each character should have: name, shortDesc (1-2 sentences), fullPrompt (detailed
+         character description ~300 words in Spanish), category, tags array, avatarUrl (use
+         a placeholder like https://api.dicebear.com/7.x/avataaars/svg?seed=<name>),
+         isPublic: true, isPremium: false (except maybe 2 premium exclusives)
+
+         ALSO create 1 demo user: email: demo@talkie.lat, name: "Demo User",
+         isPremium: true, with no password hash (OAuth-only demo account)
+
+      8. Add "db:seed" script to package.json
+      9. Verify the seed script runs without errors
+
+      CONSTRAINTS:
+      - Do NOT modify the existing schema.ts
+      - Keep the purple/pink gradient dark theme brand
+      - All text in Spanish (LATAM neutral)
+      - Database connection must handle Railway's SSL requirements
+      - Use uuid v4 for IDs where needed
+
+      Report: which files changed, seed script location, commands to run.
+    assigned_to: coder
+    depends_on: []
+    verified_by: verifier
+    verify_prompt: |
+      Verify the database setup:
+      1. Read drizzle.config.ts and confirm Railway/Neon SSL compatibility
+      2. Confirm seed.ts exists at scripts/seed.ts with 12+ characters and 1 demo user
+      3. Confirm each seed character has: name, shortDesc, fullPrompt (~300 words), category, tags, avatarUrl, isPublic, isPremium
+      4. Confirm package.json has a "db:seed" script
+      5. Try running: npx drizzle-kit generate (should produce migration files)
+      6. Check for any obvious SQL injection or connection string issues
+    timeout_ms: 1800000
+
+  - id: p1-auth
+    title: 'NextAuth v5 validation — credentials + Google OAuth end-to-end'
+    prompt: |
+      You are the Auth Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - NextAuth v5 with JWT strategy already configured at src/lib/auth/index.ts
+      - DrizzleAdapter connected to PostgreSQL
+      - Google OAuth + Credentials providers configured
+      - Pages: /auth/login, /auth/register
+      - API route: /api/auth/[...nextauth]
+      - Schema has users, accounts, sessions tables
+
+      YOUR DELIVERABLE — validate and fix NextAuth flow:
+
+      1. Read src/lib/auth/index.ts carefully
+      2. Read src/app/api/auth/[...nextauth]/route.ts
+      3. Read src/app/api/auth/register/route.ts
+      4. Read src/app/auth/login/page.tsx
+      5. Read src/app/auth/register/page.tsx
+      6. Read src/types/next-auth.d.ts
+
+      ISSUES TO CHECK AND FIX:
+      a) JWT session strategy: ensure token.sub correctly maps to session.user.id
+      b) The DrizzleAdapter needs accounts + sessions tables — verify schema matches
+      c) Credentials flow: after successful login, session should contain user.id
+      d) Google OAuth: verify the callback is configured to link accounts if user exists
+      e) Register endpoint: ensure it creates a user AND links to NextAuth sessions
+      f) CSRF protection: NextAuth handlers should work without extra config
+      g) Error handling: failed auth should redirect to /auth/login with error message
+      h) Add a GET handler to /api/auth/[...nextauth] that returns current session (useful for debugging)
+      i) Ensure /auth/register properly hashes passwords with bcryptjs before storing
+      j) Add proper TypeScript types for the session (session.user.id must be string)
+
+      SESSION DEBUG TOOL:
+      Create src/app/api/auth/session/route.ts that returns the current session
+      so we can verify auth is working.
+
+      CONSTRAINTS:
+      - Do NOT change the auth providers or session strategy (keep JWT)
+      - All text in Spanish (error messages, etc.)
+      - Keep the existing dark theme styling
+
+      Report: which files changed, what was fixed, and how to test manually.
+    assigned_to: coder
+    depends_on: []
+    verified_by: verifier
+    verify_prompt: |
+      Verify NextAuth configuration is correct:
+      1. Read the updated auth files and confirm JWT session correctly maps user.id
+      2. Confirm DrizzleAdapter schema (accounts + sessions) matches NextAuth requirements
+      3. Confirm credentials authorize() returns { id, email, name } with id as string
+      4. Check /auth/register creates user with bcrypt-hashed password
+      5. Confirm /api/auth/session endpoint exists and returns session data
+      6. Check that all error messages and UI strings are in Spanish
+      7. Verify no security issues (password logged, tokens exposed, etc.)
+      8. TypeScript: confirm session.user.id is typed as string
+    timeout_ms: 1800000
+
+  - id: p1-env
+    title: 'Production .env.example + Vercel deployment config'
+    prompt: |
+      You are the Environment Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CURRENT STATE:
+      - .env.example exists with basic vars
+      - .env.local exists with placeholder values
+      - next.config.ts exists
+
+      YOUR DELIVERABLE — create production-ready environment config:
+
+      1. Read existing .env.example and .env.local
+      2. Read next.config.ts
+
+      TASKS:
+
+      A) Expand .env.example with ALL required variables, grouped and commented:
+         # Database
+         DATABASE_URL=           # Railway PostgreSQL connection string
+
+         # NextAuth
+         NEXTAUTH_URL=          # Production URL (e.g. https://talkie-latam.vercel.app)
+         NEXTAUTH_SECRET=       # openssl rand -base64 32
+
+         # OAuth
+         GOOGLE_CLIENT_ID=
+         GOOGLE_CLIENT_SECRET=
+
+         # AI
+         OPENROUTER_API_KEY=
+
+         # Image Generation
+         REPLICATE_API_TOKEN=   # For FLUX image generation
+
+         # Rate Limiting
+         UPSTASH_REDIS_REST_URL=
+         UPSTASH_REDIS_REST_TOKEN=
+
+         # Storage
+         BLOB_READ_WRITE_TOKEN= # Vercel Blob or Cloudflare R2
+
+         # Payments
+         STRIPE_SECRET_KEY=
+         STRIPE_WEBHOOK_SECRET=
+         STRIPE_PREMIUM_PRICE_ID=
+         MERCADOPAGO_ACCESS_TOKEN=
+         MERCADOPAGO_WEBHOOK_SECRET=
+
+         # App
+         NEXT_PUBLIC_APP_URL=   # https://your-domain.com
+
+      B) Create .env.local.example (copy of .env.example with all values empty)
+
+      C) Create scripts/setup-env.sh that:
+         - Prints instructions for each required service
+         - Has a section for Railway PostgreSQL setup
+         - Has a section for Upstash Redis setup
+         - Has a section for Google OAuth setup
+         - Has a section for Replicate API setup
+         - Has a section for Stripe setup
+         - Has a section for Mercado Pago setup
+         - Explains how to generate NEXTAUTH_SECRET
+
+      D) Update next.config.ts for Vercel deployment:
+         - Add image domains for: api.dicebear.com,lh3.googleusercontent.com
+         - Configure headers for PWA
+         - Set up output: 'standalone' for Docker-friendly builds (optional)
+
+      E) Create .vercelignore if not exists (should ignore: .env*, node_modules, .next)
+
+      F) Update package.json scripts to include:
+         "vercel-build": "npx drizzle-kit push && next build"
+
+      CONSTRAINTS:
+      - Do NOT put actual secret values in any file that gets committed
+      - All instructions in Spanish
+      - Document the difference between client-side (NEXT_PUBLIC_) and server-side vars
+
+      Report: which files created/modified, and the setup checklist.
+    assigned_to: general
+    depends_on: []
+    verified_by: verifier
+    verify_prompt: |
+      Verify environment configuration:
+      1. Confirm .env.example has ALL variables from the spec (DB, NEXTAUTH, OAuth, AI, Replicate, Redis, Blob, Stripe, Mercado Pago, App URL)
+      2. Confirm every variable has a comment explaining what it is
+      3. Confirm scripts/setup-env.sh exists with sections for each service
+      4. Confirm .env.local.example mirrors .env.example (all vars, empty values)
+      5. Confirm next.config.ts has image domains for dicebear and googleusercontent
+      6. Confirm .vercelignore exists and ignores .env* and node_modules
+      7. Confirm package.json has vercel-build script
+      8. No actual secrets or tokens hardcoded anywhere
+    timeout_ms: 900000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 2 GATE
+  # ═══════════════════════════════════════════════════
+  - id: phase2-gate
+    title: 'Phase 2 Gate: AI Integration Complete'
+    prompt: |
+      Phase 2 gate task. DO NOT start until p2-chat, p2-character-creator, AND p2-rate-limit are ALL marked as complete.
+      This gate has depends_on: [phase1-gate] — wait for p2-chat, p2-character-creator, p2-rate-limit to finish first.
+
+      Then verify:
+      1. Chat SSE endpoint has error recovery (fallback message saved on stream failure)
+      2. Character creator has FLUX avatar generation + Vercel Blob upload
+      3. Rate limiting with Upstash Redis is active (50/day free, unlimited premium)
+    assigned_to: verifier
+    depends_on: [phase1-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Confirm Phase 2 gate signals are all green.
+    timeout_ms: 1800000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 2: AI Integration (parallel)
+  # ═══════════════════════════════════════════════════
+  - id: p2-chat
+    title: 'Chat endpoint stress test + SSE streaming + error recovery'
+    prompt: |
+      You are the Chat Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - Chat API at src/app/api/chat/route.ts — already has SSE streaming
+      - Uses OpenRouter for AI (DeepSeek V3 default)
+      - SSE with TextEncoder for streaming chunks
+      - Message persistence to PostgreSQL
+      - Rate limiting already integrated (checkRateLimit from lib/ratelimit)
+
+      YOUR DELIVERABLE — stress test and harden the chat endpoint:
+
+      1. Read src/app/api/chat/route.ts
+      2. Read src/lib/ai/openrouter.ts
+      3. Read src/lib/ratelimit.ts
+
+      TASKS:
+
+      A) ERROR RECOVERY — The SSE stream has a critical bug:
+         If the AI stream starts but then fails mid-way (e.g., network error,
+         OpenRouter timeout), the user message is saved but no assistant reply
+         is saved. Fix this:
+         - On stream error, save an error message to the DB with content:
+           "Lo siento, hubo un error técnico. Por favor intenta de nuevo."
+         - Return a proper error response, not just controller.error()
+
+      B) SSE RECOVERY:
+         - Add retry logic: if stream fails, client should be able to resend
+           the same message and get a response (idempotent-friendly)
+         - Add a timeout for the AI stream (60 seconds max)
+         - Handle OpenRouter rate limit errors (429) gracefully with a
+           Spanish error message
+
+      C) MESSAGE PERSISTENCE:
+         - Verify both user and assistant messages are saved correctly
+         - Check that chatSessions.replyCount increments properly
+         - Add error handling around DB writes (don't crash on DB errors)
+
+      D) CHAT HISTORY:
+         - The history limit is 20 — consider making this configurable
+         - Ensure history is passed correctly to the AI (reverse order, correct format)
+
+      E) CHARACTER-SPECIFIC SYSTEM PROMPT:
+         - Read the buildCharacterSystemPrompt function in openrouter.ts
+         - Ensure it handles characters with very short or very long fullPrompts
+         - Add a max length cap for system prompt (8192 tokens as safety)
+
+      F) Add GET handler to /api/chat that:
+         - Returns the chat history for a given sessionId
+         - Returns character info (name, avatarUrl)
+         - Used for loading chat history on page refresh
+
+      G) Add DELETE handler to /api/chat that:
+         - Deletes a chat session and all its messages
+         - Requires auth (user can only delete their own sessions)
+
+      H) Add POST /api/chat/feedback endpoint:
+         - User can mark a message as helpful/not helpful
+         - Store in a new feedback table or characterMemories table
+
+      CONSTRAINTS:
+      - All error messages in Spanish (LATAM neutral)
+      - Keep the dark theme styling
+      - Don't break existing functionality — add, don't replace
+      - No changes to the database schema
+
+      Report: which files changed, what was fixed, test plan for SSE.
+    assigned_to: coder
+    depends_on: [phase1-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify chat endpoint improvements:
+      1. Read updated chat/route.ts — confirm stream error saves fallback message to DB
+      2. Confirm 60-second timeout on AI stream
+      3. Confirm OpenRouter 429 errors return Spanish error message
+      4. Confirm GET /api/chat returns chat history + character info
+      5. Confirm DELETE /api/chat deletes session with auth check
+      6. Confirm POST /api/chat/feedback endpoint exists
+      7. Confirm system prompt has max length cap (8192 tokens)
+      8. Check for any security issues (auth bypass, injection, etc.)
+    timeout_ms: 1800000
+
+  - id: p2-character-creator
+    title: 'Character creator: Vercel Blob + FLUX image gen + prompt sanitization'
+    prompt: |
+      You are the Character Creator Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - Character creation at src/app/create/page.tsx
+      - API route at src/app/api/characters/route.ts
+      - Schema: characters table with name, shortDesc, fullPrompt, avatarUrl, category, tags
+      - Replicate API for FLUX image generation (REPLICATE_API_TOKEN in env)
+      - Vercel Blob for image storage (BLOB_READ_WRITE_TOKEN in env)
+
+      YOUR DELIVERABLE — wire up image upload and AI avatar generation:
+
+      1. Read src/app/create/page.tsx
+      2. Read src/app/api/characters/route.ts
+      3. Read src/lib/db/schema.ts (characters table)
+
+      TASKS:
+
+      A) PROMPT SANITIZATION (API side):
+         - Add input validation in /api/characters/route.ts
+         - name: 1-100 chars, trim whitespace
+         - shortDesc: 10-300 chars
+         - fullPrompt: 100-10000 chars
+         - tags: max 10 tags, each 1-50 chars
+         - category: must be one of the enum values
+         - Block any attempts to inject system prompts or jailbreak instructions
+           (check for patterns like "ignore previous instructions", "```system", etc.)
+         - Return Spanish error messages for validation failures
+
+      B) AI AVATAR GENERATION:
+         Create a new API route: POST /api/characters/generate-avatar
+         - Takes a character name and short description
+         - Calls Replicate FLUX API to generate an avatar image
+         - FLUX model: black-forest-labs/flux-dev or flux-schnell
+         - Prompt: use the character name + shortDesc + ", portrait, anime style, colorful, high quality"
+         - Upload the generated image to Vercel Blob
+         - Return the public URL
+         - Handle errors gracefully (if no REPLICATE_API_TOKEN, return a dicebear fallback URL)
+         - Set a generation timeout of 90 seconds
+         - Cost: estimate ~$0.01-0.05 per generation, document this in UI
+
+      C) VERCEL BLOB INTEGRATION:
+         - Install @vercel/blob if not in package.json
+         - Create src/lib/blob.ts with upload function
+         - Handle the BLOB_READ_WRITE_TOKEN
+         - If token not set, fall back to using dicebear avatars
+
+      D) FRONTEND UPDATES (create/page.tsx):
+         - Add "Generar imagen con IA" button that calls the avatar API
+         - Show loading state during generation (animated spinner, "Generando...")
+         - Show the generated image as a preview before submitting
+         - Allow user to upload their own image instead (file input)
+         - Show character card preview as they fill in the form
+
+      E) CHARACTER CARD PREVIEW:
+         - In the create page, show a live preview of how the character will look
+           using the CharacterCard component
+         - Update preview in real-time as user types name/description
+
+      F) API CHARACTER ENDPOINT UPDATES:
+         - GET /api/characters — add pagination (limit, offset)
+         - GET /api/characters/[id] — get single character
+         - PUT /api/characters/[id] — update character (owner only)
+         - DELETE /api/characters/[id] — delete character (owner only)
+         - POST /api/characters — create character (authenticated users)
+
+      CONSTRAINTS:
+      - All UI text in Spanish (LATAM neutral)
+      - Keep the purple/pink gradient dark theme
+      - Handle missing API tokens gracefully (fallback modes)
+      - No changes to the database schema
+      - Image generation must be async-friendly (no blocking on main thread)
+
+      Report: which files changed, how to test avatar generation.
+    assigned_to: coder
+    depends_on: [phase1-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify character creator integration:
+      1. Read /api/characters/route.ts — confirm input validation with Spanish errors
+      2. Confirm POST /api/characters/generate-avatar exists and calls Replicate FLUX
+      3. Confirm Vercel Blob upload is implemented (src/lib/blob.ts)
+      4. Confirm create/page.tsx has "Generar imagen con IA" button and preview
+      5. Confirm all CRUD endpoints (GET/GET-by-id/PUT/DELETE/POST) on characters
+      6. Check for injection vulnerabilities in prompt sanitization
+      7. Confirm fallback to dicebear if API tokens are missing
+      8. Check image generation timeout (90 seconds)
+    timeout_ms: 1800000
+
+  - id: p2-rate-limit
+    title: 'Upstash Redis rate limiting + daily counter UI + premium gating'
+    prompt: |
+      You are the Rate Limit Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - src/lib/ratelimit.ts already has checkRateLimit and getMessageLimit
+      - Upstash Redis (@upstash/redis, @upstash/ratelimit) already in package.json
+      - Chat endpoint already calls checkRateLimit
+      - User model has isPremium and messageCount fields
+
+      YOUR DELIVERABLE — implement complete rate limiting system:
+
+      1. Read src/lib/ratelimit.ts
+      2. Read src/app/api/chat/route.ts
+
+      TASKS:
+
+      A) RATE LIMIT CONFIGURATION:
+         Update ratelimit.ts:
+         - Free tier: 50 messages per day (not per hour — per rolling 24h window)
+         - Premium tier: unlimited messages (return success immediately)
+         - Implement using Upstash Ratelimit with a sliding window
+         - Use user ID as the identifier
+
+      B) DAILY MESSAGE COUNTER UI:
+         - Create a new component: src/components/message-counter.tsx
+         - Shows: "Mensajes hoy: X/50" with a progress bar
+         - Colors: green (0-30), yellow (31-40), red (41-50)
+         - On hover, show "Premium: mensajes ilimitados" if premium
+         - Position: bottom of chat interface (above the input)
+         - Include a "Obtener Premium" button when limit is near (>=40 messages)
+         - Animated counter that increments as messages are sent
+
+      C) RATE LIMIT ERROR HANDLING:
+         - When rate limited, show a beautiful Spanish error toast
+         - Include a countdown: "Podrás chatear de nuevo en X horas"
+         - Add a "Obtener Premium" CTA in the error message
+
+      D) PREMIUM DETECTION IN CHAT:
+         - In the chat endpoint, if user.isPremium, skip rate limit check entirely
+         - Add X-RateLimit-Remaining and X-RateLimit-Premium headers to response
+         - Frontend reads these headers to update the counter UI
+
+      E) CHARACTER PREMIUM GATING:
+         - Characters have isPremium field in schema
+         - In GET /api/characters, mark premium characters with a 🔒 badge
+         - In chat endpoint, check if character.isPremium before allowing chat
+         - Non-premium users trying to chat with premium characters should get:
+           "Este personaje es exclusivo para usuarios Premium. ¡Actualiza para chatear con él!"
+
+      F) RATE LIMIT API ENDPOINT:
+         - GET /api/ratelimit/status — returns:
+           { used: number, limit: number, remaining: number, isPremium: boolean, resetsAt: Date }
+
+      G) SLIDING WINDOW IMPLEMENTATION:
+         - Use @upstash/ratelimit with { interval: "1 d", prefix: "talkie-chat" }
+         - Implement proper retry-after headers
+         - Handle Redis connection failures gracefully (allow the request through, log error)
+
+      CONSTRAINTS:
+      - All text in Spanish (LATAM neutral)
+      - Keep purple/pink gradient dark theme
+      - No changes to database schema
+      - Rate limit must survive Redis restarts (using persistent storage)
+      - Free tier MUST be enforced (no way to bypass)
+
+      Report: which files changed, rate limit configuration.
+    assigned_to: coder
+    depends_on: [phase1-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify rate limiting implementation:
+      1. Read updated ratelimit.ts — confirm sliding window, 50/day for free, unlimited for premium
+      2. Confirm message-counter.tsx component exists with progress bar and colors
+      3. Confirm premium users bypass rate limit check
+      4. Confirm GET /api/ratelimit/status returns correct structure
+      5. Confirm premium character gating in chat endpoint
+      6. Confirm Redis failure fallback (allow request through)
+      7. Check all UI text is in Spanish
+      8. Verify the counter UI component is properly styled (dark theme)
+    timeout_ms: 1500000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 3 GATE
+  # ═══════════════════════════════════════════════════
+  - id: phase3-gate
+    title: 'Phase 3 Gate: Frontend Polish Complete'
+    prompt: |
+      Phase 3 gate task. Only mark done after verifying:
+      (1) All pages mobile-responsive with skeleton loaders, (2) PWA icons + SW works offline,
+      (3) SEO meta tags + sitemap + structured data implemented.
+    assigned_to: verifier
+    depends_on: [phase2-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Confirm Phase 3 gate signals are all green.
+    timeout_ms: 60000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 3: Frontend Polish (parallel)
+  # ═══════════════════════════════════════════════════
+  - id: p3-ui
+    title: 'Mobile responsiveness audit + skeleton loaders + animations polish'
+    prompt: |
+      You are the UI Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - Next.js 14 App Router
+      - Tailwind CSS v4 + Shadcn/ui components
+      - Dark purple/pink gradient theme throughout
+      - Existing pages: / (landing), /discover, /chat/[id], /create, /auth/login, /auth/register
+      - Shadcn/ui components in src/components/ui/
+
+      YOUR DELIVERABLE — audit and polish all pages for mobile-first:
+
+      1. Read src/app/page.tsx (landing)
+      2. Read src/app/discover/page.tsx
+      3. Read src/app/chat/[id]/page.tsx
+      4. Read src/app/create/page.tsx
+      5. Read src/app/globals.css
+
+      TASKS:
+
+      A) MOBILE AUDIT — Test each page at mobile viewport:
+         - Landing: nav hamburger menu, stacked sections, readable text
+         - Discover: grid → 1 column on mobile, 2 on tablet, 3-4 on desktop
+         - Chat: input at bottom, message bubbles full width, keyboard-friendly
+         - Create: form fields stacked, avatar upload thumb works on touch
+
+         Fix any overflow-x, text-too-small, or unclickable button issues.
+
+      B) SKELETON LOADERS:
+         - Create src/components/skeleton-loader.tsx with a reusable skeleton component
+         - Add loading skeletons to:
+           * /discover: skeleton cards while loading characters
+           * /chat/[id]: skeleton messages while loading chat history
+           * /create: skeleton form while loading (if async data needed)
+         - Use the dark theme colors (not white) for skeletons
+           Colors: bg-purple-900/20 for skeleton bg, animate-pulse
+
+      C) ANIMATIONS & TRANSITIONS:
+         - Add page transitions: fade-in on route change (use Framer Motion or CSS)
+         - Add hover effects on character cards (scale up, glow effect)
+         - Add typing indicator animation in chat (3 dots bouncing)
+         - Add success/error toast animations (slide in from top)
+         - Animate the hero section: text fade-in, staggered elements
+         - Add smooth scroll behavior to the landing page
+
+      D) CHAT INTERFACE POLISH:
+         - Message bubbles: user on right (purple), assistant on left (gray)
+         - Auto-scroll to latest message on new message
+         - Input field: multiline textarea that grows with content (max 4 lines)
+         - Send button: shows loading spinner during AI response
+         - Character avatar always visible in chat header
+         - "New chat" button in header
+
+      E) NAVIGATION POLISH:
+         - Add mobile hamburger menu with slide-in drawer
+         - Active nav item highlighting
+         - Smooth transitions between pages
+         - Back button on chat and create pages
+
+      F) DARK THEME CONSISTENCY:
+         - Audit all pages for consistent dark theme
+         - Fix any light-mode "flash" on page load (force dark via next-themes)
+         - Ensure all Shadcn components use dark theme variants
+         - Consistent button styles (purple gradient primary, ghost secondary)
+
+      CONSTRAINTS:
+      - Mobile-first approach (design for 375px first, then scale up)
+      - All text in Spanish
+      - Performance: no heavy animations that cause jank
+      - Keep existing functionality intact
+
+      Report: which files changed, mobile issues found and fixed.
+    assigned_to: coder
+    depends_on: [phase2-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify UI polish:
+      1. Read updated pages — confirm mobile breakpoints (sm:, md:, lg:) on all grids
+      2. Confirm skeleton-loader.tsx exists with reusable skeleton component
+      3. Confirm skeletons are used on /discover and /chat pages
+      4. Confirm chat interface has: message bubbles colored by role, auto-scroll, typing indicator
+      5. Confirm mobile nav hamburger menu exists
+      6. Confirm dark theme is enforced (no light flash)
+      7. Confirm animations are CSS-based or use lightweight libraries
+      8. Check all UI text is in Spanish
+    timeout_ms: 1800000
+
+  - id: p3-pwa
+    title: 'PWA icons + service worker + install banner'
+    prompt: |
+      You are the PWA Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - public/manifest.json may already exist
+      - public/sw.js may already exist
+      - Next.js 14 with App Router
+      - The app needs to be installable on iOS/Android/Desktop
+
+      YOUR DELIVERABLE — complete PWA setup:
+
+      1. Read public/manifest.json (if exists)
+      2. Read public/sw.js or check for service worker registration
+
+      TASKS:
+
+      A) GENERATE PWA ICONS:
+         Using the Matrix image generation tool (mavis mcp call matrix matrix_generate_image):
+         Generate a 512x512 app icon for Talkie LATAM:
+         - Prompt: "A beautiful app icon for 'Talkie LATAM' — a chat app with AI characters.
+           Purple and pink gradient background, sparkles icon, modern, clean, app-icon style.
+           Purple (#7C3AED) to pink (#EC4899) gradient."
+         Save the generated image to: public/icons/icon-512x512.png
+
+         Also generate a 192x192 version using the same prompt, save to:
+         public/icons/icon-192x192.png
+
+         Generate an Apple touch icon:
+         public/icons/apple-touch-icon.png
+
+         Generate an OG image (social share preview):
+         public/images/og-image.png (1200x630)
+
+         If image generation fails, create simple SVG icons programmatically.
+
+      B) UPDATE manifest.json:
+         {
+           "name": "Talkie LATAM",
+           "short_name": "Talkie",
+           "description": "Chatea con personajes de IA en español",
+           "start_url": "/",
+           "display": "standalone",
+           "background_color": "#000000",
+           "theme_color": "#7C3AED",
+           "orientation": "portrait",
+           "icons": [
+             { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" },
+             { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png" },
+             { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+           ],
+           "categories": ["entertainment", "social"],
+           "lang": "es-419",
+           "screenshots": []
+         }
+
+      C) SERVICE WORKER (sw.js in public/):
+         Create public/sw.js that:
+         - Caches app shell: HTML, CSS, JS, fonts
+         - Caches API responses for characters list (stale-while-revalidate)
+         - Network-first for chat API (always fresh)
+         - Offline fallback page: public/offline.html
+         - Cache version management (delete old caches on update)
+         - Background sync for failed message sends (if supported)
+
+      D) REGISTER SERVICE WORKER:
+         Update src/app/layout.tsx to register the service worker on mount.
+         Only register in production (not in dev mode).
+
+      E) OFFLINE PAGE:
+         Create public/offline.html — a simple dark-themed page that says:
+         "Estás sin conexión. Pero tus personajes favoritos están guardados. 
+          Cuando vuelvas a conectarte, podrás seguir chateando."
+
+      F) INSTALL BANNER:
+         Create src/components/install-banner.tsx:
+         - Detects PWA installability (beforeinstallprompt event)
+         - Shows a dismissible banner: "Instala Talkie para una mejor experiencia"
+         - On mobile: native install prompt
+         - On desktop: instructions to install via browser menu
+         - Persists dismissal in localStorage
+         - Shows only once per week (or until next update)
+         - Position: bottom of screen, above the chat input on mobile
+         - Style: dark banner with purple gradient accent, close button
+
+      G) APPLE TOUCH ICON META:
+         Add to src/app/layout.tsx:
+         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+         <meta name="apple-mobile-web-app-capable" content="yes" />
+         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+         <meta name="apple-mobile-web-app-title" content="Talkie LATAM" />
+
+      CONSTRAINTS:
+      - All text in Spanish
+      - Icons must be properly sized (192x192, 512x512)
+      - Service worker must not cache sensitive user data
+      - Install banner must not be annoying (dismissable, infrequent)
+
+      Report: which files created/modified, icon generation status.
+    assigned_to: general
+    depends_on: [phase2-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify PWA implementation:
+      1. Confirm public/manifest.json exists with correct name, theme_color (#7C3AED), display standalone
+      2. Confirm icons exist: icon-192x192.png, icon-512x512.png, apple-touch-icon.png
+      3. Confirm public/sw.js exists with caching strategy
+      4. Confirm offline.html exists with Spanish offline message
+      5. Confirm install-banner.tsx component exists with beforeinstallprompt detection
+      6. Confirm layout.tsx has apple-mobile-web-app meta tags
+      7. Confirm service worker registration in layout.tsx (production-only check)
+      8. Check manifest icons array matches actual icon files
+    timeout_ms: 1500000
+
+  - id: p3-seo
+    title: 'SEO: OG images, meta tags per page, sitemap.xml, robots.txt, structured data'
+    prompt: |
+      You are the SEO Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - Next.js 14 App Router
+      - Spanish (LATAM neutral) content
+      - Character pages at /chat/[id] (dynamic)
+      - Static pages: /, /discover, /create, /auth/login, /auth/register
+
+      YOUR DELIVERABLE — complete SEO setup:
+
+      TASKS:
+
+      A) GENERATE OG IMAGE:
+         Generate a 1200x630 OG image for the main site:
+         Prompt: "Talkie LATAM social share image. Dark background with purple (#7C3AED) to
+         pink (#EC4899) gradient. Text 'Talkie LATAM' in white bold font. Subtitle
+         'Chatea con personajes de IA' in lighter purple. Sparkles/stars decoration.
+         Clean, modern, professional app preview image style."
+         Save to: public/images/og-default.png
+
+      B) ROOT LAYOUT META (src/app/layout.tsx):
+         Add to existing metadata export:
+         - defaultTitle: "Talkie LATAM — Chatea con personajes de IA"
+         - defaultDescription: "Plataforma de chat con personajes de inteligencia artificial
+           en español. Crea tu propio personaje o explora miles de la comunidad."
+         - OpenGraph type: website
+         - Twitter card: summary_large_image
+         - Canonical URL
+
+      C) PER-PAGE META — update each page's metadata:
+
+         src/app/page.tsx (Home):
+         title: "Talkie LATAM — Chatea con personajes de IA en español"
+         description: "La mejor plataforma de chat con personajes de IA en español latino.
+           Miles de personajes creados por la comunidad. Gratis para empezar."
+         ogImage: /images/og-default.png
+
+         src/app/discover/page.tsx:
+         title: "Descubrir personajes — Talkie LATAM"
+         description: "Explora miles de personajes de IA. Filtra por categoría, búsqueda
+           o recomendaciones personalizadas."
+
+         src/app/create/page.tsx:
+         title: "Crea tu personaje — Talkie LATAM"
+         description: "Crea tu propio personaje de IA personalizado. Define su personalidad,
+           apariencia ybackground. ¡Es gratis!"
+
+         src/app/auth/login/page.tsx:
+         title: "Iniciar sesión — Talkie LATAM"
+         robots: noindex (login pages shouldn't be indexed)
+
+         src/app/auth/register/page.tsx:
+         title: "Crear cuenta — Talkie LATAM"
+         robots: noindex
+
+         src/app/chat/[id]/page.tsx:
+         Dynamic OG image based on character name and avatar
+         structuredData: Person/Character schema
+
+      D) SITEMAP.XML:
+         Create src/app/sitemap.ts (Next.js sitemap):
+         - Static routes: /, /discover, /create
+         - Dynamic routes: top 100 public characters (fetch from DB)
+         - Priority: home=1.0, discover=0.9, create=0.8, characters=0.7
+         - changefreq: daily for home, weekly for others
+         - Include lastmod from character.updatedAt
+
+      E) ROBOTS.TXT:
+         Create src/app/robots.ts (Next.js robots):
+         - Allow all except /auth/*, /api/*, /chat/*
+         - Sitemap URL: /sitemap.xml
+
+      F) STRUCTURED DATA (JSON-LD):
+         For home page: Organization schema with Talkie LATAM info
+         For /discover: ItemList schema of character categories
+         For character chat pages: Person/Character schema with:
+           - name, description, image, author (creator), dateCreated
+
+      G) NEXT.JS HEAD MANAGEMENT:
+         Use the generateMetadata function for dynamic OG images per character.
+         If character has avatarUrl, use it as og:image.
+         Generate dynamic description from character's shortDesc.
+
+      CONSTRAINTS:
+      - All meta content in Spanish
+      - No duplicate meta descriptions across pages
+      - sitemap.xml must be valid XML
+      - robots.txt must not block legitimate crawlers
+      - structured data must be valid JSON-LD (use schema.org types)
+
+      Report: which files created/modified, sitemap structure.
+    assigned_to: general
+    depends_on: [phase2-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify SEO implementation:
+      1. Confirm public/images/og-default.png (or SVG fallback) exists
+      2. Read layout.tsx — confirm default OG tags (title, description, og:image, twitter:card)
+      3. Confirm each page has specific metadata (check page.tsx files)
+      4. Confirm /auth/* pages have robots: noindex
+      5. Confirm src/app/sitemap.ts generates valid sitemap XML
+      6. Confirm src/app/robots.ts allows legitimate routes
+      7. Confirm character pages have structured data (JSON-LD)
+      8. Validate sitemap.xml structure is correct XML
+    timeout_ms: 1200000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 4 GATE
+  # ═══════════════════════════════════════════════════
+  - id: phase4-gate
+    title: 'Phase 4 Gate: Community & Discovery Complete'
+    prompt: |
+      Phase 4 gate task. Only mark done after verifying:
+      (1) /discover has infinite scroll + recommendations, (2) trending/new/popular tabs + flagging,
+      (3) full-text search + tag filtering + suggestions.
+    assigned_to: verifier
+    depends_on: [phase3-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Confirm Phase 4 gate signals are all green.
+    timeout_ms: 60000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 4: Community & Discovery (parallel)
+  # ═══════════════════════════════════════════════════
+  - id: p4-discovery
+    title: 'Discover page: infinite scroll + recommendation logic + empty states'
+    prompt: |
+      You are the Discovery Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - /discover/page.tsx already exists with basic grid layout
+      - /api/characters/route.ts supports GET with pagination (added in Phase 2)
+      - Schema: characters has name, shortDesc, avatarUrl, category, tags, replyCount, chatCount, isPremium
+      - User auth available via NextAuth
+
+      YOUR DELIVERABLE — build complete discover experience:
+
+      1. Read src/app/discover/page.tsx
+      2. Read src/app/api/characters/route.ts
+      3. Read src/components/character-card.tsx
+      4. Read src/lib/db/schema.ts
+
+      TASKS:
+
+      A) INFINITE SCROLL:
+         - Replace pagination buttons with infinite scroll
+         - Use Intersection Observer to detect when user reaches bottom
+         - Load 12 characters per batch
+         - Show skeleton loaders during loading
+         - "Cargar más" button as fallback (in case JS fails)
+         - No loading spinner on initial page load (use skeletons instead)
+
+      B) RECOMMENDATION LOGIC:
+         Update GET /api/characters to support a "for-you" sort:
+         - If user is logged in: recommend based on their chat history
+           (characters they haven't chatted with, in their preferred categories)
+           Fallback: most popular in categories they've engaged with
+         - If not logged in: trending + recent mix
+         - Add ?sort=recommended query param
+         - Recommendation algorithm:
+           score = (replyCount * 2) + (chatCount * 1) + recency_bonus - premium_penalty
+           where premium_penalty = 10 if user is free and character is premium
+           recency_bonus = max(0, 10 - days_since_creation)
+
+      C) EMPTY STATES:
+         Create src/components/empty-state.tsx reusable component:
+         - Icon (emoji or SVG)
+         - Title and description in Spanish
+         - Action button
+         Empty states for:
+         - No characters found: "No hay personajes todavía. ¡Sé el primero en crear uno!"
+         - No search results: "No encontramos personajes para '[query]'. Prueba otro término."
+         - No characters in category: "Esta categoría está vacía. ¡Anímate a crearla!"
+         - Network error: "Error de conexión. Revisa tu internet e intenta de nuevo."
+
+      D) CATEGORY FILTERING:
+         - Filter bar at top: chips for each category (Anime, Juegos, Ficción, Personalizado)
+         - Active filter has purple highlight
+         - "Todos" option to clear filters
+         - URL param sync: /discover?category=anime
+         - Multiple categories: /discover?category=anime,juegos
+
+      E) SORT OPTIONS:
+         - Dropdown: "Populares", "Recientes", "Más chateados", "Recomendados"
+         - Default: "Populares"
+         - URL param: /discover?sort=popular
+
+      F) CHARACTER CARDS — add premium badge:
+         Update character-card.tsx to show:
+         - 🔒 icon if isPremium (top right corner)
+         - Clicking a premium card as non-premium user → show upgrade modal
+
+      G) PREMIUM UPGRADE MODAL:
+         Create src/components/upgrade-modal.tsx:
+         - Triggered when: clicking premium character OR near message limit
+         - Content: "¡Desbloquea todo con Premium!"
+           - Mensajes ilimitados
+           - Personajes exclusivos
+           - Sin anuncios
+           - early access a nuevas funciones
+         - "Obtener Premium" CTA button (links to payments in Phase 5, for now link to /#premium)
+         - Close on backdrop click or X button
+         - Animated entrance (scale up + fade in)
+
+      CONSTRAINTS:
+      - All text in Spanish
+      - Dark purple/pink theme
+      - Infinite scroll must be accessible (keyboard navigable)
+      - Skeleton loaders during loading states
+      - No changes to database schema
+
+      Report: which files changed, how the recommendation algorithm works.
+    assigned_to: coder
+    depends_on: [phase3-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify discover page:
+      1. Read updated discover/page.tsx — confirm infinite scroll with Intersection Observer
+      2. Confirm /api/characters supports sort=recommended with scoring algorithm
+      3. Confirm empty-state.tsx exists with all 4 empty state types
+      4. Confirm category filtering with URL params
+      5. Confirm sort options dropdown
+      6. Confirm premium badge on character cards
+      7. Confirm upgrade-modal.tsx exists with Premium benefits list
+      8. Check all UI text is in Spanish
+    timeout_ms: 1800000
+
+  - id: p4-community
+    title: 'Trending/new/popular tabs + character flag/report system + user profiles'
+    prompt: |
+      You are the Community Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - /discover/page.tsx has basic character listing
+      - characters table has: isFlagged, replyCount, chatCount, creatorId, createdAt
+      - reports table already in schema
+      - User auth with profile info
+
+      YOUR DELIVERABLE — community features:
+
+      1. Read src/app/discover/page.tsx
+      2. Read src/lib/db/schema.ts (characters, reports tables)
+      3. Read src/components/character-card.tsx
+
+      TASKS:
+
+      A) TAB NAVIGATION (add to /discover page):
+         Create a tab component at the top of the discover grid:
+         - "Para ti" (recommended — default)
+         - "Trending" (highest replyCount in last 7 days)
+         - "Nuevos" (newest characters, createdAt desc)
+         - "Populares" (highest chatCount all time)
+         - URL params: /discover?tab=trending
+         - Active tab has purple underline, inactive is gray
+         - Smooth transition between tabs (fade or slide)
+
+      B) CHARACTER FLAGGING/REPORTING:
+         Create POST /api/characters/report endpoint:
+         - Body: { characterId, reason }
+         - Reasons: "Contenido inapropiado", "Spam", "Abuso", "Otro"
+         - Requires auth (user must be logged in)
+         - Rate limit: max 5 reports per user per day
+         - Creates a report record in DB
+         - Returns: { success: true, message: "Reporte enviado. Gracias por ayudar." }
+
+         Add report button to character card (three-dot menu → "Reportar"):
+         - Only shown to logged-in users
+         - Opens a small modal with reason selection
+         - Shows confirmation after submission
+
+      C) USER PROFILE PAGES:
+         Create src/app/profile/[id]/page.tsx:
+         - Shows user info: avatar, name, member since
+         - Shows their created characters grid
+         - Shows their recent chat sessions
+         - If viewing own profile: "Editar perfil" button
+         - If viewing others' profiles: "Seguir" button (UI only, no backend needed yet)
+         - Public profile: /profile/[userId]
+         - Private profiles show: "Este perfil es privado"
+
+      D) CHARACTER DETAIL PAGE:
+         Create src/app/characters/[id]/page.tsx:
+         - Full character info: name, avatar, description, tags, category
+         - Creator info with link to profile
+         - Chat statistics (replyCount, chatCount)
+         - "Empezar a chatear" primary CTA button
+         - If premium: show lock with upgrade prompt
+         - Similar characters section (same category, 4 cards)
+         - Report button in the three-dot menu
+
+      E) SOCIAL PROOF:
+         - On character cards and detail page, show: "X chats" and "X respuestas"
+         - Format large numbers: 1,234 → 1.2K, 15,000 → 15K
+
+      F) THREE-DOT MENU:
+         Create src/components/character-menu.tsx (reusable):
+         - Share (copy link to clipboard): "Copiar enlace" + toast notification
+         - Report (opens report modal)
+         - Hide from feed (personal, not blocking)
+         - Available on character cards and detail pages
+
+      CONSTRAINTS:
+      - All text in Spanish
+      - Dark purple/pink theme
+      - No changes to database schema
+      - Report button only visible to logged-in users
+
+      Report: which files created/modified.
+    assigned_to: coder
+    depends_on: [phase3-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify community features:
+      1. Confirm /discover has tabs: Para ti, Trending, Nuevos, Populares with URL sync
+      2. Confirm POST /api/characters/report endpoint with rate limiting (5/day)
+      3. Confirm report modal in character-menu.tsx with reason options
+      4. Confirm /profile/[id] page with user info and character grid
+      5. Confirm /characters/[id] detail page with all elements
+      6. Confirm character-menu.tsx with Share/Report/Hide options
+      7. Confirm large number formatting (1.2K style)
+      8. Confirm all UI text in Spanish
+    timeout_ms: 1800000
+
+  - id: p4-search
+    title: 'Full-text search + tag filtering + search suggestions'
+    prompt: |
+      You are the Search Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - characters table: name, shortDesc, fullPrompt, tags
+      - PostgreSQL full-text search can be used with tsvector
+      - /api/characters route handles GET requests
+
+      YOUR DELIVERABLE — complete search experience:
+
+      1. Read src/app/api/characters/route.ts
+      2. Read src/lib/db/schema.ts
+
+      TASKS:
+
+      A) FULL-TEXT SEARCH ENDPOINT:
+         Add to GET /api/characters:
+         - ?q=search query — searches name + shortDesc + fullPrompt + tags
+         - Use PostgreSQL tsvector with spanish text search config
+         - Add a generated column in the schema conceptually (or use raw SQL in the query):
+           ALTER TABLE characters ADD COLUMN search_vector tsvector
+           GENERATED ALWAYS AS (
+             setweight(to_tsvector('spanish', coalesce(name, '')), 'A') ||
+             setweight(to_tsvector('spanish', coalesce(short_desc, '')), 'B') ||
+             setweight(to_tsvector('spanish', coalesce(array_to_string(tags, ' '), '')), 'C')
+           ) STORED;
+         - IMPORTANT: Don't modify schema.ts (per constraints). Instead, use a raw SQL query
+           in the API or use ilike pattern matching as fallback:
+           WHERE name ILIKE '%query%' OR short_desc ILIKE '%query%' OR tags::text ILIKE '%query%'
+         - Rank results by relevance (name match > shortDesc > tags)
+         - Highlight matching terms in results (optional, adds complexity — skip if time allows)
+
+      B) SEARCH PAGE UI:
+         Create or update src/app/search/page.tsx:
+         - Search input at top: large, centered, with search icon
+         - Placeholder: "¿Qué personaje buscas?"
+         - Debounced input (300ms) triggers search as user types
+         - Results grid with infinite scroll
+         - Shows: "X resultados para '[query]'" above grid
+         - Highlights matching characters in results
+         - If no results: use empty-state component with Spanish message
+         - URL sync: /search?q=query (for shareable links)
+
+      C) SEARCH SUGGESTIONS:
+         Create GET /api/search/suggestions?q=<query>:
+         - Returns top 5 matching character names as user types
+         - Used for autocomplete in the search bar
+         - Fast response (<100ms target) — use name ILIKE with LIMIT 5
+         - Returns: { suggestions: [{ id, name, avatarUrl }] }
+
+      D) SEARCH BAR COMPONENT:
+         Create src/components/search-bar.tsx:
+         - Global search bar used in header and search page
+         - Shows dropdown suggestions as user types
+         - Keyboard navigation (up/down arrows, enter to select, escape to close)
+         - "Ver todos los resultados" link at bottom of suggestions
+         - Loading state (subtle spinner in input)
+         - Clear button (X) when input has content
+
+      E) TAG-BASED FILTERING:
+         - Extract all unique tags from characters (or maintain a tags table)
+         - Create GET /api/tags endpoint returning: { tags: ["romantico", "aventura", ...] }
+         - On /discover page, show tag cloud or horizontal scroll of popular tags
+         - Filter by multiple tags: /discover?tags=romantico,aventura
+         - Tags in character cards are clickable (filter by that tag)
+
+      F) ADVANCED SEARCH:
+         Add to GET /api/characters:
+         - ?tags=tag1,tag2 — characters with ANY of these tags
+         - ?category=anime — filter by category
+         - ?premium=true|false — filter premium/free
+         - ?creator=userId — characters by specific creator
+         - ?minChats=X — minimum chat count
+         - Combine with ?q=search query
+
+      CONSTRAINTS:
+      - All text in Spanish
+      - Search must handle accented characters (áéíóú ñ) correctly
+      - Search should be fast (<500ms for typical queries)
+      - No changes to database schema (use query-level filtering)
+
+      Report: which files changed, search query strategy.
+    assigned_to: coder
+    depends_on: [phase3-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify search implementation:
+      1. Confirm GET /api/characters supports ?q= search on name/shortDesc/tags
+      2. Confirm GET /api/search/suggestions returns top 5 name matches
+      3. Confirm /search/page.tsx exists with debounced search and URL sync
+      4. Confirm search-bar.tsx has dropdown suggestions and keyboard navigation
+      5. Confirm GET /api/tags endpoint returns unique tags
+      6. Confirm /discover supports ?tags= filter with multiple tags
+      7. Confirm advanced filters: category, premium, creator, minChats
+      8. Confirm search handles accented characters (áéíóú ñ)
+    timeout_ms: 1500000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 5 GATE
+  # ═══════════════════════════════════════════════════
+  - id: phase5-gate
+    title: 'Phase 5 Gate: Monetization Complete'
+    prompt: |
+      Phase 5 gate task. Only mark done after verifying:
+      (1) Stripe + Mercado Pago payments work, (2) admin dashboard with moderation.
+    assigned_to: verifier
+    depends_on: [phase4-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Confirm Phase 5 gate signals are all green.
+    timeout_ms: 60000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 5: Monetization (parallel)
+  # ═══════════════════════════════════════════════════
+  - id: p5-payments
+    title: 'Stripe + Mercado Pago subscriptions + premium tiers'
+    prompt: |
+      You are the Payments Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - User model has isPremium field
+      - NextAuth auth() available
+      - Mercado Pago for LATAM-local payments
+      - Stripe for international
+      - .env has STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PREMIUM_PRICE_ID,
+        MERCADOPAGO_ACCESS_TOKEN, MERCADOPAGO_WEBHOOK_SECRET
+
+      YOUR DELIVERABLE — payment integration:
+
+      1. Read src/lib/db/schema.ts (users table)
+      2. Read src/lib/auth/index.ts
+
+      TASKS:
+
+      A) STRIPE INTEGRATION:
+         Create src/lib/payments/stripe.ts:
+         - Initialize Stripe with STRIPE_SECRET_KEY
+         - createCheckoutSession(userId, priceId): creates Stripe Checkout session
+         - createPortalSession(userId): creates Stripe Customer Portal session
+         - getSubscriptionStatus(userId): checks if user has active subscription
+
+         Create POST /api/payments/stripe/checkout:
+         - Creates Stripe Checkout session for premium subscription
+         - Passes userId in metadata
+         - Success URL: /premium/success?session_id={CHECKOUT_SESSION_ID}
+         - Cancel URL: /premium
+
+         Create POST /api/payments/stripe/portal:
+         - Creates Stripe Customer Portal session
+         - For managing/canceling subscription
+
+         Create POST /api/payments/stripe/webhook:
+         - Handles Stripe webhook events
+         - customer.subscription.created → set user isPremium = true
+         - customer.subscription.updated → update premium status
+         - customer.subscription.deleted → set user isPremium = false
+         - invoice.payment_failed → send email warning (log for now)
+         - Verify webhook signature using STRIPE_WEBHOOK_SECRET
+
+      B) MERCADO PAGO INTEGRATION:
+         Create src/lib/payments/mercadopago.ts:
+         - Initialize Mercado Pago with MERCADOPAGO_ACCESS_TOKEN
+         - createPreference(userId, description): creates MP payment preference
+         - verifyWebhook(body, signature): verifies MP webhook
+
+         Create POST /api/payments/mercadopago/checkout:
+         - Creates Mercado Pago checkout preference
+         - Returns init_point URL for redirect
+         - Success URL: /premium/success?payment_id={payment_id}
+
+         Create POST /api/payments/mercadopago/webhook:
+         - Handles IPN (Instant Payment Notification)
+         - On payment approved: set user isPremium = true
+         - Verify webhook signature
+
+      C) PREMIUM PAGE:
+         Create src/app/premium/page.tsx:
+         - Hero section: "Desbloquea todo con Premium"
+         - Benefits list:
+           * Mensajes ilimitados
+           * Personajes exclusivos premium
+           * Sin anuncios
+           * Prioridad en respuestas de IA
+           * Acceso anticipado a nuevas funciones
+         - Pricing: "$4.99/mes" (Stripe) and "$4.990/mes" (Mercado Pago for CL/AR/MX)
+         - Two CTAs: "Pagar con Tarjeta" (Stripe) and "Pagar con Mercado Pago"
+         - "Ya soy Premium" link if already subscribed
+         - Test mode badge in development
+
+         Create src/app/premium/success/page.tsx:
+         - "¡Bienvenido a Premium!" celebration message
+         - Shows what they unlocked
+         - "Empezar a chatear" CTA
+
+      D) PREMIUM STATUS CHECK:
+         - Add to session callback: check user's Stripe/MP subscription status
+         - Update user.isPremium if subscription is active
+         - Create a background job concept (or API route): POST /api/payments/sync
+           that syncs all active subscriptions (called by webhook + periodic check)
+
+      E) PREMIUM UI FEATURES:
+         - When premium user is logged in: show "Premium" badge in header
+         - Remove rate limit banner from chat interface
+         - Show crown icon next to username
+         - In upgrade modal: show "Ya eres Premium" if user is premium
+
+      F) PAYMENT TESTING:
+         - Create test card numbers section in /premium page for testing
+         - Stripe test: 4242 4242 4242 4242
+         - Document that Mercado Pago has its own sandbox
+
+      CONSTRAINTS:
+      - All text in Spanish
+      - NEVER process payments without webhook verification
+      - Store payment records in DB (create payments table if needed, but don't modify schema.ts)
+        Instead, just update user.isPremium — minimal DB changes
+      - Stripe and MP must both work (LATAM users may have different payment preferences)
+      - Handle missing env vars gracefully (show "Pagos no disponibles" if not configured)
+
+      Report: which files created, payment flow.
+    assigned_to: coder
+    depends_on: [phase4-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify payment integration:
+      1. Confirm src/lib/payments/stripe.ts with createCheckoutSession, createPortalSession, getSubscriptionStatus
+      2. Confirm POST /api/payments/stripe/webhook handles all 4 event types with signature verification
+      3. Confirm src/lib/payments/mercadopago.ts exists with createPreference and verifyWebhook
+      4. Confirm POST /api/payments/mercadopago/webhook handles payment approval
+      5. Confirm /premium/page.tsx has both Stripe and Mercado Pago CTAs
+      6. Confirm /premium/success page with celebration message
+      7. Confirm premium badge in header for premium users
+      8. Check that all webhook endpoints verify signatures (never trust raw body)
+    timeout_ms: 1800000
+
+  - id: p5-dashboard
+    title: 'Admin panel: moderation, user management, usage analytics'
+    prompt: |
+      You are the Dashboard Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - User model: isAdmin, isPremium, messageCount, email, name, createdAt
+      - Characters: isFlagged, isPublic, creatorId, replyCount, chatCount
+      - Reports table: reporterId, characterId, reason, status, createdAt
+      - NextAuth auth() available
+
+      YOUR DELIVERABLE — admin panel:
+
+      1. Read src/lib/db/schema.ts
+      2. Read src/lib/auth/index.ts
+
+      TASKS:
+
+      A) ADMIN AUTH GATE:
+         - Only users with isAdmin = true can access /admin/*
+         - Create middleware or API helper: requireAdmin(request)
+         - Returns 403 if not admin, redirects to / if in browser
+
+      B) ADMIN DASHBOARD HOME:
+         Create src/app/admin/page.tsx:
+         - Stats cards: Total users, Total characters, Flagged reports, Active premium users
+         - Recent activity feed: last 10 character creations, last 10 user signups
+         - Quick links to each section
+         - Style: same dark theme, admin-only branding
+
+      C) CHARACTER MODERATION:
+         Create src/app/admin/characters/page.tsx:
+         - Table: character name, creator, flag count, status, actions
+         - Filter: All / Pending / Approved / Flagged
+         - Actions per character:
+           * "Aprobar" — sets isFlagged = false, isPublic = true
+           * "Eliminar" — soft delete or hard delete
+           * "Ver" — opens character detail
+         - Bulk actions: "Aprobar seleccionados", "Eliminar seleccionados"
+         - Pagination: 25 per page
+
+         Create POST /api/admin/characters/[id]/moderate:
+         - Body: { action: "approve" | "reject" | "delete" }
+         - Updates character status accordingly
+         - Logs moderation action
+
+      D) REPORT REVIEW:
+         Create src/app/admin/reports/page.tsx:
+         - Table: character name, reporter, reason, date, status
+         - Filter: Pending / Reviewed / All
+         - "Revisar" button → shows character info + report details
+           * "Marcar como revisado" — sets status = "reviewed"
+           * "Eliminar personaje" — calls character moderate endpoint
+           * "Descartar reporte" — sets status = "dismissed"
+         - Bulk dismiss
+
+         Create POST /api/admin/reports/[id]/review:
+         - Body: { action: "dismiss" | "delete_character" | "mark_reviewed" }
+
+      E) USER MANAGEMENT:
+         Create src/app/admin/users/page.tsx:
+         - Searchable table: name, email, premium status, message count, join date
+         - Filter: All / Free / Premium / Admins
+         - Actions:
+           * "Hacer Admin" — sets isAdmin = true
+           * "Quitar Admin" — sets isAdmin = false
+           * "Dar Premium" — sets isPremium = true (manual upgrade)
+           * "Quitar Premium" — sets isPremium = false
+           * "Ver perfil" — links to /profile/[id]
+         - Export to CSV button (downloads user list)
+
+         Create POST /api/admin/users/[id]/action:
+         - Body: { action: "make_admin" | "remove_admin" | "grant_premium" | "revoke_premium" }
+         - Updates user accordingly
+
+      F) USAGE ANALYTICS:
+         Create src/app/admin/analytics/page.tsx:
+         - Chart: messages per day (last 30 days) — use ASCII chart or simple SVG
+         - Stats: avg messages per user, top 5 characters by chats, new users this week
+         - These are lightweight — query DB directly, no external analytics library needed
+         - Add a "Actualizar" button to refresh data
+
+         Create GET /api/admin/analytics:
+         - Returns: { messagesPerDay: [...], avgMessagesPerUser, topCharacters, newUsersThisWeek }
+
+      G) ADMIN API ROUTES:
+         All admin endpoints go under /api/admin/* and require isAdmin check:
+         - GET /api/admin/stats — dashboard overview stats
+         - GET /api/admin/characters — paginated character list with filters
+         - POST /api/admin/characters/[id]/moderate
+         - GET /api/admin/reports — paginated report list
+         - POST /api/admin/reports/[id]/review
+         - GET /api/admin/users — paginated user list
+         - POST /api/admin/users/[id]/action
+         - GET /api/admin/analytics
+
+      CONSTRAINTS:
+      - All text in Spanish
+      - Admin routes MUST verify isAdmin before any action
+      - No changes to database schema
+      - Admin panel should be fast (optimize DB queries with proper indexes)
+      - Don't expose sensitive data (no password hashes, no full API keys)
+
+      Report: which files created/modified.
+    assigned_to: coder
+    depends_on: [phase4-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify admin panel:
+      1. Confirm all /api/admin/* routes check isAdmin before processing
+      2. Confirm /admin page shows stats cards and activity feed
+      3. Confirm /admin/characters has approve/reject/delete actions
+      4. Confirm /admin/reports has review/dismiss actions
+      5. Confirm /admin/users has admin/premium management
+      6. Confirm /admin/analytics shows basic usage charts
+      7. Confirm CSV export on users page
+      8. Check no sensitive data is exposed in admin API responses
+    timeout_ms: 1800000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 6 GATE
+  # ═══════════════════════════════════════════════════
+  - id: phase6-gate
+    title: 'Phase 6 Gate: Deployment & QA Complete'
+    prompt: |
+      Phase 6 gate task. Only mark done after verifying:
+      (1) App deployed to Vercel with custom domain, (2) E2E tests pass.
+    assigned_to: verifier
+    depends_on: [phase5-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Confirm Phase 6 gate signals are all green.
+    timeout_ms: 60000
+
+  # ═══════════════════════════════════════════════════
+  # PHASE 6: Launch (sequential — deployment first, then QA)
+  # ═══════════════════════════════════════════════════
+  - id: p6-deploy
+    title: 'Vercel deployment + custom domain + CI/CD + env vars'
+    prompt: |
+      You are the Deployment Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - Next.js 14 app with TypeScript
+      - Uses: Drizzle ORM, PostgreSQL (Railway), Redis (Upstash), Replicate API
+      - Already has vercel-build script in package.json
+      - .env.example and .vercelignore exist from Phase 1
+
+      YOUR DELIVERABLE — production deployment setup:
+
+      TASKS:
+
+      A) VERCEL PROJECT CONFIG:
+         Create .vercelignore if not already complete (should include):
+         .env*
+         .env.local
+         node_modules/
+         .next/
+         *.test.ts
+         *.spec.ts
+         drizzle.config.ts
+         scripts/
+         public/icons/  (generated icons are already in public)
+
+         Create vercel.json at root:
+         {
+           "buildCommand": "npm run vercel-build",
+           "installCommand": "npm install",
+           "framework": "nextjs",
+           "regions": ["gru1", "iad1", "scl1"],  // Brazil, Virginia, Chile (LATAM)
+           "env": {
+             "NEXT_PUBLIC_APP_URL": "@app_url"
+           },
+           "headers": [
+             {
+               "source": "/sw.js",
+               "headers": [
+                 { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
+                 { "key": "Service-Worker-Allowed", "value": "/" }
+               ]
+             },
+             {
+               "source": "/(.*)",
+               "headers": [
+                 { "key": "X-Content-Type-Options", "value": "nosniff" },
+                 { "key": "X-Frame-Options", "value": "DENY" },
+                 { "key": "X-XSS-Protection", "value": "1; mode=block" },
+                 { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+               ]
+             }
+           ]
+         }
+
+      B) CI/CD PIPELINE:
+         Create .github/workflows/deploy.yml:
+         name: Deploy to Vercel
+         on: [push to main, pull_request]
+         jobs:
+           - run: npm install
+           - run: npm run lint
+           - run: npm run build
+           - if: github.ref == 'refs/heads/main':
+             run: vercel --prod --token ${{ secrets.VERCEL_TOKEN }}
+
+         Create .github/workflows/ci.yml:
+         - Run lint and type check on every PR
+         - Block merge if lint fails
+
+      C) ENVIRONMENT VARIABLES DOC:
+         Create docs/deployment-checklist.md:
+         Step-by-step guide in Spanish:
+         1. Create Railway PostgreSQL project
+            - Get connection string
+            - Run: npx drizzle-kit push
+            - Run: npm run db:seed
+         2. Create Upstash Redis project
+            - Get REST URL and token
+         3. Create Replicate account
+            - Get API token
+         4. Create Stripe account
+            - Get secret key, create product ($4.99/mo), get price ID
+            - Set up webhook endpoint
+         5. Create Mercado Pago account (for CL/AR/MX users)
+            - Get access token
+         6. Create Vercel project
+            - Import from GitHub
+            - Add all env vars from .env.example
+            - Deploy
+         7. Set up custom domain in Vercel dashboard
+            - Add DNS records
+            - Wait for SSL certificate
+
+      D) DEPLOYMENT TESTING:
+         Once Vercel deployment is configured, run a test deployment:
+         npm run build && echo "Build successful"
+
+         Check for:
+         - No TypeScript errors
+         - No ESLint errors
+         - Build completes under 5 minutes
+         - No missing environment variable errors
+
+      E) POST-DEPLOYMENT VERIFICATION CHECKLIST:
+         Create public/deploy-check.html (or docs/post-deploy-checklist.md):
+         A checklist the user can follow after deployment:
+         □ Homepage loads at <app-url>
+         □ /discover shows character grid
+         □ /auth/login page renders
+         □ /auth/register page renders
+         □ PWA manifest accessible at <app-url>/manifest.json
+         □ Service worker registered
+         □ Sitemap at <app-url>/sitemap.xml
+         □ OG image at <app-url>/images/og-default.png
+
+      F) BACKUP & RECOVERY:
+         Document in docs/deployment-checklist.md:
+         - How to connect to Railway PostgreSQL directly
+         - How to restore from seed script
+         - How to rollback to previous Vercel deployment
+
+      CONSTRAINTS:
+      - All documentation in Spanish
+      - Don't commit any actual API keys or secrets
+      - Make deployment as simple as possible for the user
+
+      Report: which files created/modified, deployment checklist.
+    assigned_to: general
+    depends_on: [phase5-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Verify deployment setup:
+      1. Confirm vercel.json exists with buildCommand, installCommand, regions, security headers
+      2. Confirm .github/workflows/deploy.yml with lint + build + deploy
+      3. Confirm .github/workflows/ci.yml with lint + type-check
+      4. Confirm docs/deployment-checklist.md with step-by-step setup in Spanish
+      5. Confirm docs/post-deploy-checklist.md with verification checklist
+      6. Confirm npm run build succeeds (try it)
+      7. Confirm no secrets or API keys are committed anywhere
+      8. Confirm Vercel regions include LATAM (scl1)
+    timeout_ms: 1500000
+
+  - id: p6-qa
+    title: 'End-to-end testing: register → create → chat → premium upgrade'
+    prompt: |
+      You are the QA Agent for Talkie LATAM.
+
+      PROJECT: /Users/felirami/.mavis/agents/general/workspace/talkie-latam/
+
+      CONTEXT:
+      - Full app built across Phases 1-5
+      - All pages: /, /discover, /chat/[id], /create, /auth/login, /auth/register,
+        /premium, /profile/[id], /characters/[id], /search, /admin/*
+      - APIs: /api/chat, /api/characters, /api/auth, /api/payments, /api/admin, /api/search
+
+      YOUR DELIVERABLE — end-to-end testing:
+
+      1. Read the key pages and API routes to understand what's been built
+
+      TASKS:
+
+      A) MANUAL TEST PLAN (docs/test-plan.md):
+         Write a comprehensive Spanish-language test plan covering:
+
+         1. AUTHENTICATION
+            □ Register with email/password — success case
+            □ Register with existing email — error message
+            □ Login with correct credentials — redirect to /discover
+            □ Login with wrong password — error message
+            □ Login with Google OAuth (if credentials provided)
+            □ Logout — redirects to home
+            □ Access /chat without auth — redirects to login
+
+         2. CHARACTER CREATION
+            □ Create character with all fields — success
+            □ Create character without required fields — validation error
+            □ Generate AI avatar — check image loads
+            □ Upload custom avatar — check image displays
+            □ Character appears in /discover immediately after creation
+            □ Prompt injection attempt — sanitized or rejected
+
+         3. CHAT
+            □ Send message to character — AI response streams
+            □ Chat history persists after refresh
+            □ SSE error recovery — error message saved
+            □ Rate limit at 50 messages — shows warning
+            □ Delete chat session — messages gone
+            □ Premium character (free user) — shows upgrade prompt
+            □ Premium character (premium user) — can chat normally
+
+         4. DISCOVERY
+            □ Infinite scroll loads more characters
+            □ Category filter works
+            □ Sort options work (Populares/Recientes/Trending/Para ti)
+            □ Search returns relevant results
+            □ Search suggestions appear as you type
+            □ Premium badge shows on premium characters
+
+         5. COMMUNITY
+            □ Report character — confirmation shown
+            □ User profile shows created characters
+            □ Character detail page shows all info
+            □ Share link copies to clipboard
+
+         6. PAYMENTS (mock testing)
+            □ /premium page loads with both payment options
+            □ Stripe checkout redirect (don't complete real payment)
+            □ Mercado Pago checkout redirect (don't complete real payment)
+            □ Premium badge appears after manual isPremium = true
+
+         7. ADMIN
+            □ Non-admin accessing /admin/* → 403 or redirect
+            □ Admin can see all tabs
+            □ Approve/reject character works
+            □ User management actions work
+            □ Analytics data loads
+
+         8. PWA
+            □ Service worker caches homepage
+            □ Offline page shows when disconnected
+            □ Install banner appears (in supported browsers)
+            □ App icon appears on home screen after install
+
+         9. SEO
+            □ /sitemap.xml is valid XML
+            □ /robots.txt allows good bots
+            □ OG image shows when sharing homepage URL
+            □ Each page has unique title and description
+
+      B) AUTOMATED SMOKE TESTS (scripts/smoke-test.ts):
+         Create a Node.js smoke test script that:
+         - Uses Playwright or simple fetch calls
+         - Tests the critical happy paths:
+           1. Homepage loads (200 status)
+           2. /discover loads (200)
+           3. /auth/login loads (200)
+           4. /auth/register loads (200)
+           5. /sitemap.xml is valid XML
+           6. /robots.txt exists
+           7. /manifest.json has correct fields
+           8. Public character list API returns 200
+         - Reports pass/fail for each check
+         - Can be run: npx ts-node scripts/smoke-test.ts
+
+      C) BUG REPORTING:
+         For any bugs found during testing, create GitHub Issues (or a bugs.md file).
+         Format each bug as:
+         ## [BUG-XXX] Title
+         - Page/Route:
+         - Steps to reproduce:
+         - Expected behavior:
+         - Actual behavior:
+         - Severity: Critical / High / Medium / Low
+         - Suggested fix:
+
+      D) PERFORMANCE CHECKS:
+         Add to smoke test:
+         - Homepage loads under 3 seconds
+         - /discover loads under 5 seconds
+         - API responses under 1 second
+
+      CONSTRAINTS:
+      - All test plan content in Spanish
+      - Focus on critical paths — don't test every edge case
+      - Don't run real payment flows
+      - Performance checks use reasonable thresholds
+
+      Report: test plan location, smoke test results, any bugs found.
+    assigned_to: general
+    depends_on: [p6-deploy]
+    verified_by: verifier
+    verify_prompt: |
+      Verify QA deliverables:
+      1. Confirm docs/test-plan.md exists with all 9 sections (Auth, Characters, Chat, Discovery, Community, Payments, Admin, PWA, SEO)
+      2. Confirm each section has concrete test steps in Spanish
+      3. Confirm scripts/smoke-test.ts exists and can be run
+      4. Try running: npx ts-node scripts/smoke-test.ts (should at least parse without errors)
+      5. Confirm bug report format in docs/bugs.md (if any bugs were found)
+      6. Confirm smoke test covers: homepage, discover, login, register, sitemap, robots, manifest, character API
+      7. Confirm performance thresholds are reasonable (3s homepage, 5s discover, 1s API)
+      8. Confirm all test descriptions are in Spanish
+    timeout_ms: 1500000
+
+  # ═══════════════════════════════════════════════════
+  # FINAL GATE
+  # ═══════════════════════════════════════════════════
+  - id: final-gate
+    title: 'Final Gate: All phases complete — app shippable'
+    prompt: |
+      Final gate. Only mark done after all 6 phases pass verification.
+      Summarize what was built and what success criteria are met.
+    assigned_to: verifier
+    depends_on: [phase6-gate]
+    verified_by: verifier
+    verify_prompt: |
+      Confirm all phases complete. Summarize deliverable state.
+    timeout_ms: 60000
