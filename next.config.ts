@@ -1,16 +1,7 @@
 import type { NextConfig } from "next";
-import path from "path";
 
 const nextConfig: NextConfig = {
-  // Vercel provides its own serverless execution environment,
-  // standalone is only needed for self-hosted Docker deployments.
-  // output: "standalone",
-
-  // Turbopack root hint
-  turbopack: {
-    root: path.resolve(__dirname),
-  },
-
+  // Standalone disabled — Vercel handles serverless execution natively
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "api.dicebear.com", pathname: "/**" },
