@@ -1,4 +1,5 @@
 {
+  "projects": ["chatbotlatam"],
   "framework": "nextjs",
   "regions": ["gru1"]
 }
