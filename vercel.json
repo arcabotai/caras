@@ -1,24 +1,4 @@
 {
-  "framework": null,
-  "regions": ["gru1"],
-  "headers": [
-    {
-      "source": "/api/stripe/webhook",
-      "headers": [
-        { "key": "Content-Type", "value": "application/json" }
-      ]
-    },
-    {
-      "source": "/api/mercadopago/webhook",
-      "headers": [
-        { "key": "Content-Type", "value": "application/json" }
-      ]
-    }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron/cleanup",
-      "schedule": "0 2 * * *"
-    }
-  ]
+  "framework": "nextjs",
+  "regions": ["gru1"]
 }

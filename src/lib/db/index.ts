@@ -1,8 +1,14 @@
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import * as schema from "./schema";
-import { neon } from "@neondatabase/serverless";
 
-const sql = neon(process.env.DATABASE_URL!);
+// Use pg Pool for Railway PostgreSQL — handles SSL natively
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl:
+    process.env.NODE_ENV === "production"
+      ? { rejectUnauthorized: false }
+      : false,
+});
 
-// Railway PostgreSQL requires SSL - neon handles this automatically
-export const db = drizzle(sql, { schema });
+export const db = drizzle(pool, { schema });
