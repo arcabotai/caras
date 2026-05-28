@@ -2,7 +2,9 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Vercel provides its own serverless execution environment,
+  // standalone is only needed for self-hosted Docker deployments.
+  // output: "standalone",
 
   // Turbopack root hint
   turbopack: {
