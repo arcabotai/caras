@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { characters } from "@/lib/db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { NextRequest } from "next/server";
+import { trackSearch } from "@/lib/trending";
 
 export const dynamic = "force-dynamic";
 
@@ -130,45 +131,89 @@ function createValidationError(message: string, field?: string) {
   );
 }
 
-// GET - List characters
+// GET - List characters with search and filtering
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const category = searchParams.get("category");
-  const search = searchParams.get("search");
+  const q = searchParams.get("q"); // search query
+  const tagsParam = searchParams.get("tags"); // comma-separated tag filter
   const sort = searchParams.get("sort") || "popular";
   const page = parseInt(searchParams.get("page") || "1");
-  const limit = 20;
+  const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
   const offset = (page - 1) * limit;
 
-  let query = db.select().from(characters).where(eq(characters.isPublic, true));
+  // Build base where clause
+  const isPublicWhere = eq(characters.isPublic, true);
+  const conditions: any[] = [isPublicWhere];
 
+  // Category filter
   if (category && category !== "all") {
-    query = db
-      .select()
-      .from(characters)
-      .where(and(eq(characters.isPublic, true), eq(characters.category, category as any)));
+    conditions.push(eq(characters.category, category as any));
   }
 
-  if (search) {
+  // Tag filter (comma-separated, e.g. ?tags=anime,games)
+  if (tagsParam) {
+    const tags = tagsParam.split(",").map((t) => t.trim()).filter(Boolean);
+    if (tags.length > 0) {
+      // Filter using SQL array overlap
+      conditions.push(sql`${characters.tags} && ${tags}`);
+    }
+  }
+
+  // Search query - ILIKE on name, shortDesc, fullPrompt
+  if (q && q.trim()) {
+    const searchTerm = q.trim();
+    const searchPattern = `%${searchTerm}%`;
+    conditions.push(
+      sql`(${characters.name} ILIKE ${searchPattern} OR ${characters.shortDesc} ILIKE ${searchPattern} OR ${characters.fullPrompt} ILIKE ${searchPattern})`
+    );
+
+    // Track search for trending
+    trackSearch(searchTerm);
+
+    // Search returns all matches (no pagination, limit to 50 for safety)
     const results = await db
       .select()
       .from(characters)
-      .where(
-        and(
-          eq(characters.isPublic, true),
-          sql`${characters.name} ILIKE ${"%" + search + "%"} OR ${characters.shortDesc} ILIKE ${"%" + search + "%"}`
-        )
-      );
-    return Response.json({ characters: results, total: results.length });
+      .where(and(...conditions))
+      .limit(50);
+    return Response.json({ characters: results, total: results.length, query: q });
   }
+
+  // Get total count for pagination
+  const totalResult = await db
+    .select({ count: sql<number>`count(*)`.as("count") })
+    .from(characters)
+    .where(and(...conditions));
+  const total = Number(totalResult[0]?.count || 0);
 
   let results;
   switch (sort) {
+    case "para_ti": {
+      // Seeded shuffle based on user session + popular categories
+      // Fetch popular characters first, then pseudo-shuffle
+      const session = await auth();
+      const seed = session?.user?.id || "anonymous";
+      const popularChars = await db
+        .select()
+        .from(characters)
+        .where(and(...conditions))
+        .orderBy(desc(characters.replyCount))
+        .limit(100);
+      // Simple seeded shuffle
+      const shuffled = [...popularChars].sort((a, b) => {
+        const seedA = seed.charCodeAt((a.id.length) % seed.length);
+        const seedB = seed.charCodeAt((b.id.length) % seed.length);
+        return (seedA - seedB) % 2 === 0 ? -1 : 1;
+      });
+      results = shuffled.slice(offset, offset + limit);
+      break;
+    }
     case "new":
       results = await db
         .select()
         .from(characters)
-        .where(eq(characters.isPublic, true))
+        .where(and(...conditions))
         .orderBy(desc(characters.createdAt))
         .limit(limit)
         .offset(offset);
@@ -177,31 +222,30 @@ export async function GET(req: NextRequest) {
       results = await db
         .select()
         .from(characters)
-        .where(eq(characters.isPublic, true))
+        .where(and(...conditions))
         .orderBy(desc(characters.chatCount))
         .limit(limit)
         .offset(offset);
       break;
+    case "popular":
     default:
       results = await db
         .select()
         .from(characters)
-        .where(eq(characters.isPublic, true))
+        .where(and(...conditions))
         .orderBy(desc(characters.replyCount))
         .limit(limit)
         .offset(offset);
   }
 
-  const total = await db
-    .select({ count: sql<number>`count(*)`.as("count") })
-    .from(characters)
-    .where(eq(characters.isPublic, true));
+  const hasMore = offset + results.length < total;
 
   return Response.json({
     characters: results,
-    total: Number(total[0]?.count || 0),
+    total,
     page,
-    totalPages: Math.ceil(Number(total[0]?.count || 0) / limit),
+    totalPages: Math.ceil(total / limit),
+    hasMore,
   });
 }
 

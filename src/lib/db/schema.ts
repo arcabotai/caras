@@ -12,6 +12,17 @@ export const characterCategoryEnum = pgEnum("character_category", [
   "featured",
 ]);
 export const messageRoleEnum = pgEnum("message_role", ["user", "assistant"]);
+export const reportReasonEnum = pgEnum("report_reason", [
+  "inappropriate",
+  "spam",
+  "copyright",
+  "other",
+]);
+export const reportStatusEnum = pgEnum("report_status", [
+  "pending",
+  "dismissed",
+  "actioned",
+]);
 
 // Users
 export const users = pgTable("users", {
@@ -21,9 +32,13 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   passwordHash: text("password_hash"),
   isPremium: boolean("is_premium").default(false).notNull(),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
   isAdmin: boolean("is_admin").default(false).notNull(),
   whatsappNumber: varchar("whatsapp_number", { length: 20 }),
   messageCount: integer("message_count").default(0).notNull(),
+  mercadopagoPaymentId: varchar("mercadopago_payment_id", { length: 255 }),
+  mercadopagoSubscriptionId: varchar("mercadopago_subscription_id", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -98,13 +113,22 @@ export const characterMemories = pgTable("character_memories", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Character Reactions (likes/hearts)
+export const characterReactions = pgTable("character_reactions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  characterId: uuid("character_id").notNull().references(() => characters.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Reports
 export const reports = pgTable("reports", {
   id: uuid("id").primaryKey().defaultRandom(),
   reporterId: uuid("reporter_id").references(() => users.id, { onDelete: "set null" }),
   characterId: uuid("character_id").references(() => characters.id, { onDelete: "cascade" }),
-  reason: text("reason").notNull(),
-  status: varchar("status", { length: 50 }).default("pending").notNull(),
+  reason: reportReasonEnum("reason").notNull(),
+  details: text("details"),
+  status: reportStatusEnum("status").default("pending").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -114,12 +138,16 @@ export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   characters: many(characters),
   chatSessions: many(chatSessions),
+  reports: many(reports),
+  reactions: many(characterReactions),
 }));
 
 export const charactersRelations = relations(characters, ({ one, many }) => ({
   creator: one(users, { fields: [characters.creatorId], references: [users.id] }),
   chatSessions: many(chatSessions),
   memories: many(characterMemories),
+  reports: many(reports),
+  reactions: many(characterReactions),
 }));
 
 export const chatSessionsRelations = relations(chatSessions, ({ one, many }) => ({

@@ -10,6 +10,10 @@ import { Send, ArrowLeft } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { MessageCounter } from "@/components/message-counter";
+import { ReactionButton } from "@/components/reaction-button";
+import { ShareButton } from "@/components/share-button";
+import { ReportModal } from "@/components/report-modal";
+import { Flag } from "lucide-react";
 
 // Skeleton components for chat
 function ChatHeaderSkeleton() {
@@ -76,6 +80,7 @@ export default function ChatPage() {
   const [character, setCharacter] = useState<any>(null);
   const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -277,11 +282,30 @@ export default function ChatPage() {
                 {character.shortDesc}
               </p>
             </div>
-            {character.isPremium && (
-              <Badge className="hidden sm:flex bg-amber-500/20 text-amber-400 border-0 flex items-center gap-1 flex-shrink-0">
-                <span>🔒</span> PREMIUM
-              </Badge>
-            )}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <ReactionButton characterId={character.id} size="sm" />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setIsReportModalOpen(true)}
+                className="text-gray-400 hover:text-red-400 hover:bg-red-400/10"
+                title="Reportar personaje"
+              >
+                <Flag className="w-4 h-4" />
+              </Button>
+              {character.isPremium && (
+                <Badge className="bg-amber-500/20 text-amber-400 border-0 flex items-center gap-1 flex-shrink-0">
+                  <span>🔒</span> PREMIUM
+                </Badge>
+              )}
+            </div>
+            <ShareButton
+              characterId={characterId}
+              characterName={character.name}
+              shortDesc={character.shortDesc ?? ""}
+              variant="chat"
+              size="sm"
+            />
           </div>
         ) : (
           <ChatHeaderSkeleton />
@@ -314,7 +338,7 @@ export default function ChatPage() {
             </h3>
             <p className="text-gray-400 max-w-md">{character.shortDesc}</p>
           </div>
-        )}
+        ) : null}
 
         {messages.map((msg, index) => (
           <div
@@ -382,6 +406,16 @@ export default function ChatPage() {
           </Button>
         </div>
       </div>
+
+      {/* Report Modal */}
+      {character && (
+        <ReportModal
+          characterId={character.id}
+          characterName={character.name}
+          open={isReportModalOpen}
+          onOpenChange={setIsReportModalOpen}
+        />
+      )}
     </div>
   );
 }

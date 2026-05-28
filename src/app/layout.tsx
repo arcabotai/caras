@@ -81,15 +81,9 @@ const baseMetadata: Metadata = {
     "virtual characters",
     "AI chat app",
   ],
-  authors: [{ name: "Talkie LATAM", url: BASE_URL }],
-  creator: {
-    name: "Talkie LATAM",
-    url: BASE_URL,
-  },
-  publisher: {
-    name: "Talkie LATAM",
-    url: BASE_URL,
-  },
+  authors: [{ name: "Talkie LATAM" }],
+  creator: "Talkie LATAM",
+  publisher: "Talkie LATAM",
   openGraph: {
     type: "website",
     locale: "es_LA",

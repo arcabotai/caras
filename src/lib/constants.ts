@@ -65,7 +65,8 @@ export const featuredCharacters = [
 ];
 
 export const sortOptions = [
-  { id: "popular", label: "Más populares" },
-  { id: "new", label: "Nuevos" },
+  { id: "para_ti", label: "Para ti" },
+  { id: "popular", label: "Populares" },
+  { id: "new", label: "Recientes" },
   { id: "trending", label: "Trending" },
 ];

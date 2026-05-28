@@ -1,93 +1,96 @@
-# Talkie LATAM — Phase 3: PWA Implementation
+# Talkie LATAM Phase 4 — Search Implementation Report
 
-## Summary
+## Deliverables Completed
 
-All PWA deliverables for Phase 3 have been implemented. Below is a per-file report.
+### A) Database Search Index Documentation
+**File:** `docs/db-schema-notes.md`
 
----
+Created documentation covering:
+- Current ILIKE-based search implementation
+- Limitations of pattern matching for full-text search
+- Production recommendation: PgVector for semantic search
+- Alternative search services (Meilisearch, Algolia, Typesense, Elasticsearch)
+- PostgreSQL partial indexes for common query patterns
+- Tags array filtering with `&&` operator
 
-## Files Created / Modified
+### B) Full-Text Search API
+**File:** `src/app/api/characters/route.ts`
 
-### 1. `public/manifest.json` — Modified
+Updated GET handler with:
+- `?q=` parameter for full-text search across name, shortDesc, fullPrompt
+- Uses PostgreSQL ILIKE for pattern matching
+- Returns up to 50 results
+- Returns `{ characters, total, query }` response
+- Integrates with trending.ts to track search terms
 
-Updated to match the spec exactly:
-- `description`: "Chatea con personajes IA increíbles"
-- `background_color`: "#0f0f1a"
-- `theme_color`: "#7c3aed"
-- Added `categories: ["entertainment", "social"]` and `lang: "es"`
+### C) Character Tag Filtering
+**File:** `src/app/api/characters/route.ts`
 
----
+Added `?tags=` parameter:
+- Comma-separated tags (e.g., `?tags=anime,games`)
+- Uses PostgreSQL array overlap operator (`&&`)
+- Composes with `?q=` search (AND logic)
+- Composes with `?category=` filter
 
-### 2. `public/sw.js` — Replaced
+### D) Frontend Search Page
+**File:** `src/app/search/page.tsx`
 
-Full rewrite with versioned cache and correct routing strategy:
+Created dedicated search page with:
+- Text input "Buscar personajes..." with 300ms debounce
+- Loading skeleton while fetching
+- Results grid using CharacterCard components
+- "Sin resultados para X" message when no matches
+- Shows search term in result header with count
+- Trending searches display on empty state
 
-| Pattern | Strategy | Notes |
-|---|---|---|
-| Static assets (JS, CSS, fonts, images, `/_next/static/`) | Cache-first | Refresh in background |
-| App pages (`/`, `/discover`, `/chat/*`) | Network-first → cache → offline | |
-| API routes (`/api/chat`, `/api/auth/*`, all `/api/*`) | **Never cached** | Skipped in fetch handler |
+### E) Search Suggestions
+**Files:**
+- `src/app/discover/page.tsx` — Updated with suggestions dropdown
+- `src/app/search/page.tsx` — Built-in suggestions
 
-Key features:
-- Versioned cache (`talkie-latam-v1`) with old cache cleanup on activation
-- Offline fallback for app pages (serves `/offline` when both network and cache fail)
-- API routes explicitly excluded from caching
+Features:
+- 300ms debounce on input change
+- Fetches up to 5 suggestions from `/api/characters?q=...&limit=5`
+- Dropdown shows character name and short description
+- Click navigates to `/chat/[id]`
+- 200ms blur delay to allow click
+- Click-outside closes suggestions
 
----
+### F) Popular Searches
+**File:** `src/lib/trending.ts`
 
-### 3. `src/app/offline/page.tsx` — Created
+Created trending module with:
+- `trackSearch(term: string)` — Records search term (min 2 chars)
+- `getTrendingSearches()` — Returns top 10 terms, 60s cache
+- In-memory Map implementation (simple for current scope)
+- `clearTrending()` — For testing/scheduled reset
 
-Dark-themed Spanish offline page with:
-- "Talkie LATAM" logo text (gradient T icon + brand name)
-- Message: "No tienes conexión a internet en este momento."
-- SVG wifi-off icon
-- "Reintentar" button (reloads the page)
-- Purple gradient styling (`#0f0f1a` background, violet accents)
+## Files Created/Modified
 
----
+| File | Action |
+|------|--------|
+| `docs/db-schema-notes.md` | Created |
+| `src/lib/trending.ts` | Created |
+| `src/app/search/page.tsx` | Created |
+| `src/app/api/characters/route.ts` | Modified |
+| `src/app/discover/page.tsx` | Modified |
 
-### 4. `public/icons/icon-192.png` & `public/icons/icon-512.png` — Created
+## API Parameters Summary
 
-Generated using Node.js + Sharp. Simple design: purple radial-gradient rounded square with a white "T" centered, subtle highlight ellipse and drop-shadow glow. Both sizes include `rx` rounding consistent with the app's visual identity.
+```
+GET /api/characters
+  ?q=search_term        → Full-text search (ILIKE)
+  ?tags=anime,games     → Tag filter (OR logic via array overlap)
+  ?category=anime       → Category filter
+  ?sort=popular|new|trending|para_ti
+  ?page=1
+  ?limit=20             (max 50)
+```
 
----
+## Notes
 
-### 5. `src/components/InstallPrompt.tsx` — Created
-
-Client component that:
-- Listens for `beforeinstallprompt` events
-- Shows a floating bottom banner: "Instala Talkie para mejores experiencias [Instalar]"
-- Calls `deferredPrompt.prompt()` on click
-- Dismisses and stores timestamp in `localStorage` (7-day suppression)
-
-Banner style: purple gradient (`#1e1030 → #2d1b5e`) glass-morphism card with close button.
-
----
-
-### 6. `src/app/layout.tsx` — Modified
-
-Added `<InstallPrompt />` to the root layout (line 6 import, line 170 component).
-
----
-
-## Verification Checklist
-
-| Item | Status |
-|---|---|
-| Manifest: `name`, `short_name`, `description` | ✅ |
-| Manifest: `start_url: "/"` | ✅ |
-| Manifest: `display: "standalone"` | ✅ |
-| Manifest: `background_color: "#0f0f1a"`, `theme_color: "#7c3aed"` | ✅ |
-| Manifest: both icon sizes with correct MIME | ✅ |
-| Manifest: `categories` and `lang: "es"` | ✅ |
-| SW: versioned cache name | ✅ |
-| SW: cache-first for static assets | ✅ |
-| SW: network-first for pages | ✅ |
-| SW: `/api/*` never cached | ✅ |
-| SW: offline fallback via `/offline` route | ✅ |
-| Offline page: Spanish message | ✅ |
-| Offline page: "Reintentar" button | ✅ |
-| Icons: 192×192 and 512×512 PNGs generated | ✅ |
-| InstallPrompt: deferred prompt handling | ✅ |
-| InstallPrompt: localStorage 7-day dismissal | ✅ |
-| InstallPrompt: integrated in layout | ✅ |
+- All text in LATAM Spanish
+- Debounced search (300ms) to avoid API flooding
+- Suggestions are ephemeral (in-memory, not persisted)
+- Trending data is ephemeral (in-memory, resets on server restart)
+- For production scale, consider Redis for trending and PgVector for search

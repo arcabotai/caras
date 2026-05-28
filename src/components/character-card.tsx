@@ -1,8 +1,12 @@
+"use client";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { MessageCircle } from "lucide-react";
 import Link from "next/link";
+import { ReactionButton } from "./reaction-button";
+import { ShareButton } from "@/components/share-button";
 
 interface CharacterCardProps {
   id: string;
@@ -12,6 +16,7 @@ interface CharacterCardProps {
   replyCount: number;
   category: string;
   isPremium?: boolean;
+  reactionCount?: number;
 }
 
 const categoryColors: Record<string, string> = {
@@ -31,6 +36,7 @@ export function CharacterCard({
   replyCount,
   category,
   isPremium,
+  reactionCount,
 }: CharacterCardProps) {
   const initials = name
     .split(" ")
@@ -40,9 +46,9 @@ export function CharacterCard({
     .toUpperCase();
 
   return (
-    <Link href={`/chat/${id}`}>
-      <Card className="group cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/10 border border-white/5 bg-black/40 backdrop-blur-sm overflow-hidden">
-        <div className="relative h-48 overflow-hidden">
+    <Card className="group cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/10 border border-white/5 bg-black/40 backdrop-blur-sm overflow-hidden">
+      <div className="relative h-48 overflow-hidden">
+        <Link href={`/chat/${id}`} className="block w-full h-full">
           {avatarUrl ? (
             <img
               src={avatarUrl}
@@ -56,16 +62,31 @@ export function CharacterCard({
               </Avatar>
             </div>
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
-          {isPremium && (
-            <Badge className="absolute top-3 right-3 bg-amber-500/90 text-black border-0 text-xs font-bold px-2 flex items-center gap-1">
-              <span>🔒</span> PREMIUM
-            </Badge>
-          )}
-          <div className="absolute bottom-3 left-3 right-3">
-            <h3 className="text-white font-bold text-lg leading-tight">{name}</h3>
-          </div>
+        </Link>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+        {isPremium && (
+          <Badge className="absolute top-3 right-14 bg-amber-500/90 text-black border-0 text-xs font-bold px-2 flex items-center gap-1">
+            <span>🔒</span> PREMIUM
+          </Badge>
+        )}
+        {/* Share button overlay */}
+        <div
+          className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ShareButton
+            characterId={id}
+            characterName={name}
+            shortDesc={shortDesc}
+            variant="chat"
+            size="sm"
+          />
         </div>
+        <Link href={`/chat/${id}`} className="absolute bottom-3 left-3 right-3">
+          <h3 className="text-white font-bold text-lg leading-tight">{name}</h3>
+        </Link>
+      </div>
+      <Link href={`/chat/${id}`}>
         <CardContent className="p-4">
           <p className="text-gray-400 text-sm line-clamp-2 mb-3">{shortDesc}</p>
           <div className="flex items-center justify-between">
@@ -75,13 +96,16 @@ export function CharacterCard({
             >
               {category.toUpperCase()}
             </Badge>
-            <div className="flex items-center gap-1 text-gray-500 text-sm">
-              <MessageCircle className="w-3.5 h-3.5" />
-              <span>{replyCount.toLocaleString("es-ES")}</span>
+            <div className="flex items-center gap-2">
+              <ReactionButton characterId={id} initialCount={reactionCount ?? 0} size="sm" />
+              <div className="flex items-center gap-1 text-gray-500 text-xs">
+                <MessageCircle className="w-3 h-3" />
+                <span>{replyCount.toLocaleString("es-ES")}</span>
+              </div>
             </div>
           </div>
         </CardContent>
-      </Card>
-    </Link>
+      </Link>
+    </Card>
   );
 }

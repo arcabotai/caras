@@ -1,7 +1,8 @@
+"use client";
+
 export default function OfflinePage() {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-6 bg-[#0f0f1a]">
-      {/* Background gradient overlay */}
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
@@ -11,9 +12,7 @@ export default function OfflinePage() {
         aria-hidden="true"
       />
 
-      {/* Content */}
       <div className="relative flex flex-col items-center gap-8 text-center">
-        {/* Logo / Brand */}
         <div className="flex flex-col items-center gap-3">
           <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-600 to-purple-700 flex items-center justify-center shadow-xl shadow-purple-900/30">
             <span className="text-3xl font-bold text-white">T</span>
@@ -23,7 +22,6 @@ export default function OfflinePage() {
           </h1>
         </div>
 
-        {/* Message */}
         <div className="flex flex-col items-center gap-4 max-w-xs">
           <svg
             className="w-12 h-12 text-violet-400"
@@ -44,7 +42,6 @@ export default function OfflinePage() {
           </p>
         </div>
 
-        {/* Retry button */}
         <button
           onClick={() => window.location.reload()}
           className="mt-2 px-6 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-semibold shadow-lg shadow-purple-900/40 hover:from-violet-500 hover:to-purple-500 active:scale-95 transition-all duration-150 cursor-pointer"
